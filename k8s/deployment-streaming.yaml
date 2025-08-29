@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streaming-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: streaming-service
+  template:
+    metadata:
+      labels:
+        app: streaming-service
+    spec:
+      containers:
+        - name: streaming
+          image: your-registry/streaming-service:latest
+          ports:
+            - containerPort: 8083
+          envFrom:
+            - secretRef:
+                name: video-service-secrets
+          env:
+            - name: VIDEO_STORAGE_PATH
+              value: /data/videos
+          volumeMounts:
+            - name: videos
+              mountPath: /data/videos
+      volumes:
+        - name: videos
+          emptyDir: {} # replace with PVC in production

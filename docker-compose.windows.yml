@@ -1,0 +1,98 @@
+version: "3.8"
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  upload-service:
+    build: ./upload-service
+    depends_on:
+      - rabbitmq
+    volumes:
+      - videos:/data/videos
+    ports:
+      - "8081:8081"
+    secrets:
+      - jwt_access_secret
+      - signedurl_secret
+    environment:
+      # ENTRYPOINT will load /run/secrets/jwt_access_secret -> SECURITY_JWT_ACCESS_SECRET
+      # and /run/secrets/signedurl_secret -> SIGNEDURL_SECRET
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - VIDEO_STORAGE_PATH=/data/videos
+      - CDN_BASE_URL=http://localhost:8084
+
+  transcoder-service:
+    build: ./transcoder-service
+    depends_on:
+      - rabbitmq
+      - upload-service
+    volumes:
+      - videos:/data/videos
+    ports:
+      - "8082:8082"
+    secrets:
+      - jwt_access_secret
+      - signedurl_secret
+    environment:
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - VIDEO_STORAGE_PATH=/data/videos
+
+  streaming-service:
+    build: ./streaming-service
+    depends_on:
+      - upload-service
+    volumes:
+      - videos:/data/videos
+    ports:
+      - "8083:8083"
+    secrets:
+      - signedurl_secret
+    environment:
+      - VIDEO_STORAGE_PATH=/data/videos
+
+  nginx:
+    image: nginx:1.25
+    depends_on:
+      - streaming-service
+    ports:
+      - "8084:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  # Optional bootstrap container (runs once) to seed an admin user.
+  # It reads admin credentials from secrets mounted at /run/secrets/<name>.
+  seed-admin:
+    image: curlimages/curl:8.4.0
+    depends_on:
+      - upload-service
+    volumes:
+      - ./docker/seed-admin.sh:/seed-admin.sh:ro
+    secrets:
+      - admin_user
+      - admin_pass
+    entrypoint: ["/bin/sh","-c","export ADMIN_USER=\"$(cat /run/secrets/admin_user)\" && export ADMIN_PASS=\"$(cat /run/secrets/admin_pass)\" && chmod +x /seed-admin.sh && /seed-admin.sh"]
+    restart: "no"
+
+volumes:
+  videos:
+
+secrets:
+  # For docker compose (V2) you can reference secret files in the project directory.
+  # Keep these files outside source control (see ./secrets/.gitignore)
+  jwt_access_secret:
+    file: ./secrets/jwt_access_secret.txt
+  signedurl_secret:
+    file: ./secrets/signedurl_secret.txt
+  admin_user:
+    file: ./secrets/admin_user.txt
+  admin_pass:
+    file: ./secrets/admin_pass.txt

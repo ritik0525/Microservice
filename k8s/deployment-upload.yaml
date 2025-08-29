@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upload-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: upload-service
+  template:
+    metadata:
+      labels:
+        app: upload-service
+    spec:
+      containers:
+        - name: upload
+          image: your-registry/upload-service:latest
+          ports:
+            - containerPort: 8081
+          envFrom:
+            # inject all keys from the secret as environment variables
+            - secretRef:
+                name: video-service-secrets
+          env:
+            # other env vars
+            - name: VIDEO_STORAGE_PATH
+              value: /data/videos
+          volumeMounts:
+            - name: videos
+              mountPath: /data/videos
+      volumes:
+        - name: videos
+          emptyDir: {} # replace with persistent volume (PVC) in production
