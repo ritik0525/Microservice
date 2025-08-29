@@ -1,60 +1,128 @@
-```markdown
-# Split Video Streaming Microservices — JWT, Signed URLs, CDN (Nginx) Example
 
-What's new
-- JWT authentication: upload-service issues JWT tokens at /auth/login (demo user admin/password).
-- Signed URLs: upload-service creates signed, short-lived URLs to stream HLS/DASH assets.
-- Streaming-service validates signed URLs (HMAC-SHA256) and expiry before serving files.
-- Local "CDN" reverse proxy (Nginx) caches and forwards requests to the streaming-service.
+# Project Description
 
-Run locally (quick):
-1. Edit secrets:
-   - In upload-service/src/main/resources/application.properties and streaming-service/src/main/resources/application.properties
-     replace security.jwt.secret and signedurl.secret with secure secrets OR set env vars in docker-compose.
-2. Build and run:
-   docker-compose up --build
+This project is a microservices-based video management system designed to address the challenges of scalable, secure, and efficient video handling for modern applications. Its purpose is to enable seamless video upload, streaming, and transcoding, while ensuring robust security and maintainability.
 
-Endpoints
-- Auth:
-  POST http://localhost:8081/auth/login
-  Body: { "username":"admin", "password":"password" }
-  Returns: { "token": "..." }
+The system solves several key problems:
+- **Scalability**: By splitting functionality into independent services, the platform can handle increased load and scale horizontally.
+- **Security**: Implements secure authentication, signed URLs, and secret management to protect user data and video assets.
+- **Flexibility**: Supports multiple deployment options (Docker, Kubernetes) and can be extended for cloud or on-premise use.
+- **Performance**: Real-time streaming and automated transcoding optimize video delivery for different devices and network conditions.
 
-- Upload (requires Authorization: Bearer <token> header):
-  POST http://localhost:8081/api/videos/upload
-  form field: file=@/path/to/video.mp4
+# Microservice Architecture & Project Summary
 
-- Check status:
-  GET http://localhost:8081/api/videos/{id}/status
+## Architecture Diagram
 
-- Request a signed URL (requires JWT):
-  POST http://localhost:8081/api/videos/{id}/signed-url?type=hls
-  Returns: { "url": "http://localhost:8084/stream/hls/{id}/hls_master.m3u8?expires=...&sig=..." }
+```mermaid
+graph TD
+	Client[Client/User]
+	CDN[CDN / Nginx]
+	API[API Gateway]
+	Upload[Upload Service]
+	Stream[Streaming Service]
+	Transcoder[Transcoder Service]
+	Secrets[Secrets Management]
 
-- Use that signed URL in your player (the URL goes to the CDN at http://localhost:8084). The streaming-service validates the signature and expiry.
-
-CDN / CloudFront notes
-- This example ships a simple Nginx reverse-proxy (nginx:8084) which caches static streaming assets and forwards to streaming-service.
-- For production-grade CDN, use a real CDN (CloudFront, Cloudflare, Fastly) in front of the streaming origin. There are two main approaches:
-  1) CDN-level signed URLs (CloudFront signed URLs / signed cookies) — CloudFront validates the signature using RSA keypairs. To use CloudFront signed URLs you must:
-     - Create a CloudFront distribution with your streaming-service (or S3) as origin.
-     - Configure trusted key groups / key pairs.
-     - Use the CloudFront SDK or utilities to generate signed URLs/cookies (CloudFront uses RSA signing, not HMAC).
-  2) Application-level signed URLs (this example) — CDN caches but streaming-service validates signature. Keep the signing secret only in services that must sign/verify.
-
-Security notes
-- Do NOT use the example secrets in production.
-- Move secrets into a secrets manager (AWS Secrets Manager, HashiCorp Vault, Kubernetes Secrets).
-- Use HTTPS for all external endpoints (the demo runs HTTP locally).
-- Replace in-memory/static user authentication with a real identity store or an OAuth2 provider.
-
-Next improvements you may want
-- Use AWS CloudFront with RSA-signed URLs for production; I'll provide an example CloudFront Terraform / AWS CLI snippet if you want.
-- Replace shared volume with S3/MinIO: store originals and generated assets in object storage; use signed presigned URLs for playback.
-- Move auth out to a dedicated Auth service (OAuth2 / OpenID Connect) and use short-lived access tokens for service-to-service calls.
-
-Enjoy. If you want, I can:
-- Convert signed URLs to use CloudFront RSA-signed URLs and provide Terraform for distribution.
-- Replace the shared volume with S3 + CDN + presigned URL flow.
-- Add user management and integrate an OAuth2 provider (Keycloak / Cognito).
+	Client -->|HTTP Request| CDN
+	CDN -->|Proxy/Cache| API
+	API --> Upload
+	API --> Stream
+	Upload --> Transcoder
+	Upload --> Secrets
+	Stream --> Secrets
+	Transcoder --> Secrets
+	Transcoder --> Stream
 ```
+
+**Legend:**
+- Client interacts with CDN (Nginx), which proxies requests to the API Gateway.
+- API Gateway routes requests to Upload and Streaming services.
+- Upload Service manages uploads and triggers transcoding.
+- Transcoder Service processes videos and interacts with Streaming Service.
+- Secrets Management is used by all services for secure credentials.
+# Installation Instructions
+
+1. **Clone the repository:**
+	```powershell
+	git clone https://github.com/ritik0525/Microservice.git
+	cd Microservice
+	```
+
+2. **Edit secrets:**
+	- Update `security.jwt.secret` and `signedurl.secret` in:
+	  - `upload-service/src/main/resources/application.properties`
+	  - `streaming-service/src/main/resources/application.properties`
+	- Or set environment variables in `docker-compose.yml`.
+
+3. **Build and run with Docker Compose:**
+	```powershell
+	docker-compose up --build
+	```
+
+4. **(Optional) Kubernetes deployment:**
+	- Use the YAML files in the `k8s/` directory for cloud or cluster deployment.
+
+# Usage Instructions
+
+## Authentication
+Request a JWT token:
+```http
+POST http://localhost:8081/auth/login
+Body: { "username": "admin", "password": "password" }
+```
+Response:
+```json
+{ "token": "<JWT token>" }
+```
+
+## Upload a Video
+```http
+POST http://localhost:8081/api/videos/upload
+Headers: Authorization: Bearer <token>
+Form field: file=@/path/to/video.mp4
+```
+
+## Check Video Status
+```http
+GET http://localhost:8081/api/videos/{id}/status
+Headers: Authorization: Bearer <token>
+```
+
+## Request a Signed URL for Streaming
+```http
+POST http://localhost:8081/api/videos/{id}/signed-url?type=hls
+Headers: Authorization: Bearer <token>
+```
+Response:
+```json
+{ "url": "http://localhost:8084/stream/hls/{id}/hls_master.m3u8?expires=...&sig=..." }
+```
+
+## Play the Video
+Use the signed URL in your video player. Requests go through the CDN (nginx) at `http://localhost:8084` and are validated by the streaming service.
+
+## Architecture Overview
+
+This project is designed using a microservices architecture, where each core functionality is separated into independent services. The main components include:
+
+- **Video Streaming Service**: Handles video streaming operations and serves video content to users.
+- **Upload Service**: Manages video uploads, user authentication, and metadata storage.
+- **Transcoder Service**: Responsible for transcoding uploaded videos into different formats and resolutions.
+- **API Gateway (nginx)**: Routes requests to the appropriate microservice and provides a single entry point for clients.
+- **Secrets Management**: Uses Docker secrets and Kubernetes secrets for secure management of sensitive data.
+- **Orchestration**: Docker Compose and Kubernetes YAML files are provided for local and cloud deployments.
+
+Each service is built with Spring Boot (Java) and communicates via REST APIs. The architecture supports scalability, maintainability, and independent deployment of services.
+
+## Project Summary
+
+This microservices-based video management system enables users to upload, stream, and transcode videos efficiently. Key features include:
+
+- Secure video upload and authentication
+- Real-time video streaming
+- Automated video transcoding
+- Centralized API gateway for routing
+- Containerized deployment with Docker and Kubernetes
+- Secure handling of secrets and credentials
+
+The project is ideal for scalable video platforms, educational portals, or any application requiring robust video management capabilities.
